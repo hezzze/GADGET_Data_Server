@@ -49,8 +49,23 @@ function initServer() {
     app.set('port', (process.env.PORT || 5000));
     app.use(express.static(__dirname + '/public'));
 
+
     app.get('/', function(request, response) {
         //response.send(_rawDataJSON);
+    });
+
+
+    app.options('/data', function(req, resp) {
+        resp.set({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': "GET OPTIONS",
+            'Access-Control-Request-Method': "*",
+            'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+        });
+
+        //When the parameter is an Array or Object, Express responds with the JSON representation:
+        // http://expressjs.com/4x/api.html#res.send
+        resp.send("OK");
     });
 
     app.get('/data', function(req, resp) {
@@ -74,10 +89,10 @@ function initServer() {
             var resultData = getHourData(dataSource, info);
 
             resp.set({
-            	'Access-Control-Allow-Origin': '*',
-            	'Access-Control-Allow-Methods': "GET OPTIONS",
-            	'Access-Control-Request-Method': "*",
-            	'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Methods': "GET OPTIONS",
+                'Access-Control-Request-Method': "*",
+                'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
             });
 
             //When the parameter is an Array or Object, Express responds with the JSON representation:
