@@ -73,9 +73,11 @@ function initServer() {
             };
             var resultData = getHourData(dataSource, info);
 
-            resp.header({
+            resp.set({
             	'Access-Control-Allow-Origin': '*',
-            	'Access-Control-Allow-Methods': "GET"
+            	'Access-Control-Allow-Methods': "GET",
+            	'Access-Control-Request-Method': "*",
+            	'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
             });
 
             //When the parameter is an Array or Object, Express responds with the JSON representation:
