@@ -73,6 +73,10 @@ function initServer() {
             };
             var resultData = getHourData(dataSource, info);
 
+            resp.header({
+            	'Access-Control-Allow-Origin': '*'
+            });
+
             //When the parameter is an Array or Object, Express responds with the JSON representation:
             // http://expressjs.com/4x/api.html#res.send
             resp.send(resultData);
