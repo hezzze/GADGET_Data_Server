@@ -75,7 +75,7 @@ function initServer() {
 
             resp.set({
             	'Access-Control-Allow-Origin': '*',
-            	'Access-Control-Allow-Methods': "GET",
+            	'Access-Control-Allow-Methods': "GET OPTIONS",
             	'Access-Control-Request-Method': "*",
             	'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
             });
