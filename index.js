@@ -62,6 +62,11 @@ function initServer() {
 
         var category = _categories[req.query.category];
 
+        resp.headers('Access-Control-Allow-Origin','*');
+        resp.headers('Access-Control-Allow-Methods','POST OPTIONS');
+        resp.headers('Access-Control-Request-Method','*');
+        resp.headers('Access-Control-Allow-Headers','Origin, X-Requested-With, Content-Type, Accept, Authorization');
+
         if (req.query.hour) {
             var info = {
                 dayIdx: parseInt(req.query.day),
@@ -79,6 +84,8 @@ function initServer() {
         }
 
     });
+
+    
 
     app.listen(app.get('port'), function() {
         console.log("Node app is running at localhost:" + app.get('port'));
