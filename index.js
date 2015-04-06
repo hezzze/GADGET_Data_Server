@@ -63,7 +63,7 @@ function initServer() {
         var category = _categories[req.query.category];
 
         resp.headers('Access-Control-Allow-Origin','*');
-        resp.headers('Access-Control-Allow-Methods','POST OPTIONS');
+        resp.headers('Access-Control-Allow-Methods','GET OPTIONS');
         resp.headers('Access-Control-Request-Method','*');
         resp.headers('Access-Control-Allow-Headers','Origin, X-Requested-With, Content-Type, Accept, Authorization');
 
