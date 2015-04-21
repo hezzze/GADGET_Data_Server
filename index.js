@@ -56,7 +56,7 @@ function initServer() {
 
 
     app.get('/', function(request, response) {
-        //response.send(_rawDataJSON);
+        response.send(_rawDataJSON);
     });
 
 
