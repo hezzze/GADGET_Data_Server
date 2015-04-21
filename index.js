@@ -13,7 +13,7 @@ AWS.config.update({
 
 var s3 = new AWS.S3();
 
-var BUCKET_NAME = "medidatasiyang";
+var BUCKET_NAME = "itp-hezzze";
 var FILE_KEY = "mockData.json";
 
 var params = {
