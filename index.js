@@ -23,18 +23,23 @@ var params = {
 
 var _rawDataJSON = "";
 var _categories = {
-    heart_rate: {
+    RawHeartValue: {
         idx: 0,
-        round: true,
+        round: false,
         sampleRate: 0.25
     },
-    respiration_rate: {
+    heart_rate: {
         idx: 1,
         round: true,
         sampleRate: 0.25
     },
-    skin_temperature: {
+    respiration_rate: {
         idx: 2,
+        round: true,
+        sampleRate: 0.25
+    },
+    skin_temperature: {
+        idx: 3,
         round: false,
         sampleRate: 0.25
     }
@@ -84,7 +89,7 @@ function initServer() {
                 categoryIdx: category.idx,
                 round: category.round,
                 sampleRate: category.sampleRate,
-                dateFieldIdx: 3
+                dateFieldIdx: 4
             };
             var resultData = getHourData(dataSource, info);
 
