@@ -1,53 +1,242 @@
 'use strict';
 
+var MSECS_IN_DAY = 60 * 60 * 24 * 1000;
+var MSECS_IN_HOUR = 60 * 60 * 1000;
+var MSECS_IN_MIN = 60 * 1000;
+var MSECS_IN_SEC = 1000;
+var F_DEVICE_ID = "deviceId";
+var F_ECG = "RawHeartValue";
+var F_TIME_STAMP = "timeStamp";
+var F_CATEGORIES = "categories";
+
 var express = require('express');
+var fs = require('fs');
 var app = express();
 
-// Load the SDK and UUID
-var AWS = require('aws-sdk');
-var uuid = require('node-uuid');
 
-AWS.config.update({
-    region: 'us-west-2'
-});
+//MongoDB
+var MongoClient = require('mongodb').MongoClient;
+var assert = require('assert');
+var _url = 'mongodb://localhost:27017/test';
 
-var s3 = new AWS.S3();
-
-var BUCKET_NAME = "itp-hezzze";
-var FILE_KEY = "mockData.json";
-
-var params = {
-    Bucket: BUCKET_NAME,
-    Key: FILE_KEY
-};
-
-var _rawDataJSON = "";
-var _categories = {
+var _users = [];
+var _nLoaded = 0;
+var _nUsers;
+var _catInfos = {
     RawHeartValue: {
         idx: 0,
         round: false,
-        sampleRate: 0.25
+        scale: 1,
+        origSampleRate: 125,
+        hourSampleInterval: MSECS_IN_SEC
     },
-    heart_rate: {
+    BPM: {
         idx: 1,
         round: true,
-        sampleRate: 0.25
+        scale: 1,
+        origSampleRate: 0.25,
+        hourSampleInterval: MSECS_IN_MIN
     },
-    respiration_rate: {
-        idx: 2,
-        round: true,
-        sampleRate: 0.25
-    },
-    skin_temperature: {
+    BodyTemp: {
         idx: 3,
         round: false,
-        sampleRate: 0.25
+        scale: 0.01,
+        origSampleRate: 0.25,
+        hourSampleInterval: MSECS_IN_MIN
     }
 };
 
-s3.getObject(params).createReadStream().on('data', function(data) {
-    _rawDataJSON += data;
-}).on('end', initServer);
+
+MongoClient.connect(_url, function(err, db) {
+    assert.equal(null, err);
+
+    var users = {};
+
+    db.listCollections().toArray(function(err, items) {
+
+        var regex = /(.+)\/(.+)/;
+        var s, m, userId, deviceId;
+
+        for (var i = 0; i < items.length; i++) {
+
+            s = items[i].name;
+
+            if (!regex.test(s)) continue;
+
+            m = regex.exec(s);
+            userId = m[1];
+            deviceId = m[2];
+
+            if (!users.hasOwnProperty(userId)) {
+                users[userId] = [];
+            }
+
+            users[userId].push(deviceId);
+        }
+
+
+        console.log(users);
+
+        _nUsers = users.length;
+
+        // var u1 = "com:mdsol:users:52344b6e-e6d5-4ec2-b83d-bbc64725d189";
+        // _users.push(new User(u1, users[u1], db));
+
+
+        for (var u in users) {
+            _users.push(new User(u, users[u], db));
+        }
+
+    });
+});
+
+
+function User(uuid, deviceIds, db) {
+
+    this.uuid = uuid || "";
+
+    var userObj = this;
+
+    var info = {};
+
+    function calcDeviceCompletionRate(deviceId, firstTime, lastTime, callback) {
+
+        var rateSum = 0,
+            nCategoryDone = 0;
+
+
+        Object.keys(_catInfos).forEach(function(category) {
+            var coll = db.collection(uuid + "/" + deviceId);
+            var nTotal = Math.round((lastTime - firstTime) * _catInfos[category].origSampleRate / 1000);
+            var query = {};
+            query[F_CATEGORIES + "." + category] = {
+                $exists: true
+            };
+
+            coll.count(query, function(err, actual) {
+
+                
+                var rate = actual / nTotal;
+
+                //debug lines
+                //console.log(uuid + "/" + deviceId + "->" + category);
+                //console.log("Total records should be " + nTotal + ". Got " + actual + " (" + Math.round(rate * 100) + "%). origSampleRate: " +_catInfos[category].origSampleRate);
+
+                rateSum += rate;
+                nCategoryDone++;
+
+                //check if all the category is processed
+                if (nCategoryDone === Object.keys(_catInfos).length) {
+
+                    //call the callback if all done
+                    callback(rateSum / nCategoryDone);
+                }
+            });
+        });
+    }
+
+
+    deviceIds.forEach(function(deviceId, idx) {
+
+        var coll = db.collection(uuid + "/" + deviceId);
+        var option = {};
+        option[F_TIME_STAMP] = 1;
+
+        var firstTime, lastTime;
+
+        coll.find().sort(option).limit(1).next(function(err, firstDoc) {
+            assert.equal(null, err);
+
+            option[F_TIME_STAMP] = -1;
+            coll.find().sort(option).limit(1).next(function(err, lastDoc) {
+                assert.equal(null, err);
+
+                firstTime = firstDoc[F_TIME_STAMP];
+                lastTime = lastDoc[F_TIME_STAMP];
+
+                //console.log(firstTime, lastTime);
+
+                info[deviceId] = {
+                    firstTime: firstTime,
+                    lastTime: lastTime,
+                    days: getDeviceDays(firstTime, lastTime)
+                };
+
+
+
+                calcDeviceCompletionRate(deviceId, firstTime, lastTime, function(rate) {
+                    info[deviceId].completionRate = rate;
+
+                    console.log(info[deviceId]);
+
+                    //check if all the device is processed
+                    if (idx === deviceIds.length - 1) {
+                        userObj.info = info;
+
+                        onLoadComplete(uuid, db);
+                    }
+
+                });
+            });
+        });
+    });
+
+
+    function getDeviceDays(firstTime, lastTime) {
+
+        var totalMSeconds = lastTime - firstTime;
+
+        var lastDayIdx = Math.floor(totalMSeconds / (MSECS_IN_DAY));
+
+
+        var days = [];
+        var fullDayHours = [];
+        var lastDayHours = [];
+        var startMin = new Date(firstTime).getUTCMinutes();
+        var startHour = new Date(firstTime).getUTCHours();
+
+
+        function fillHourStrings(hoursToFill, nHours, startHour, startMin) {
+            var tmpHour;
+
+            for (var j = 0; j < nHours; j++) {
+
+                tmpHour = (startHour + j) % 24;
+
+                hoursToFill.push(tmpHour + ":" + startMin + " - " + ((tmpHour + 1) % 24) + ":" + startMin);
+            }
+        }
+
+        //every hour in a full day
+
+        fillHourStrings(fullDayHours, 24, startHour, startMin);
+
+        for (var i = 0; i < lastDayIdx; i++) {
+            days.push(fullDayHours);
+        }
+
+        var hoursInLastDay = Math.ceil((totalMSeconds - lastDayIdx * MSECS_IN_DAY) / MSECS_IN_HOUR);
+
+        fillHourStrings(lastDayHours, hoursInLastDay, startHour, startMin);
+
+        days.push(lastDayHours);
+
+        return days;
+    }
+
+}
+
+
+function onLoadComplete(uuid, db) {
+    console.log("Loading " + uuid + " completed...\n");
+    _nLoaded++;
+    if (_nLoaded === _users.length) {
+        initServer();
+        db.close();
+    }
+}
+
+
 
 
 function initServer() {
@@ -56,7 +245,61 @@ function initServer() {
 
 
     app.get('/', function(request, response) {
-        response.send(_rawDataJSON);
+        response.send("Hey, what's up!");
+    });
+
+    app.options('/info', function(req, resp) {
+        resp.set({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': "GET OPTIONS",
+            'Access-Control-Request-Method': "*",
+            'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+        });
+
+        //When the parameter is an Array or Object, Express responds with the JSON representation:
+        // http://expressjs.com/4x/api.html#res.send
+        resp.send("OK");
+    });
+
+    app.get('/info', function(req, resp) {
+
+        resp.set({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': "GET OPTIONS",
+            'Access-Control-Request-Method': "*",
+            'Access-Control-Allow-Headers': "Cache-Control, Pragma, Origin, Authorization, Content-Type, X-Requested-With"
+        });
+        resp.send(_users);
+
+    });
+
+
+    app.get('/user/:userIdx/info', function(req, resp) {
+
+        resp.set({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': "GET OPTIONS",
+            'Access-Control-Request-Method': "*",
+            'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+        });
+
+
+        var userIdx;
+        try {
+            userIdx = parseInt(req.params.userIdx);
+        } catch (e) {
+            console.log(e.message);
+            resp.sendStatus(404);
+            return;
+        }
+
+        if (userIdx < 0 || userIdx > _users.length - 1) {
+            resp.sendStatus(404);
+            return;
+        }
+
+        resp.send(_users[userIdx].info);
+
     });
 
 
@@ -73,46 +316,111 @@ function initServer() {
         resp.send("OK");
     });
 
-    app.get('/data', function(req, resp) {
+    app.get('/user/:userIdx/data', function(req, resp) {
 
-        var dataSource = JSON.parse(_rawDataJSON);
 
+        var userIdx;
+        try {
+            userIdx = parseInt(req.params.userIdx);
+        } catch (e) {
+            console.log(e.message);
+            resp.sendStatus(404);
+            return;
+        }
+
+        if (userIdx < 0 || userIdx > _users.length - 1) {
+            resp.sendStatus(404);
+            return;
+        }
+
+
+        var user = _users[userIdx];
+        var dvc = req.query.device;
+
+        console.log("\nIncoming query for " + user.uuid);
         console.log(req.query);
-        console.log(dataSource.length);
 
-        var category = _categories[req.query.category];
+        var dvcDays = user.info[dvc].days;
 
-        resp.header('Access-Control-Allow-Origin','*');
-        resp.header('Access-Control-Allow-Methods','GET OPTIONS');
-        resp.header('Access-Control-Request-Method','*');
-        resp.header('Access-Control-Allow-Headers','Origin, X-Requested-With, Content-Type, Accept, Authorization');
+        var catInfo = _catInfos[req.query.category];
 
-        if (req.query.hour) {
+        if (![req.query.hour, dvc, req.query.day, req.query.category, catInfo].every(_isValid)) {
+            resp.sendStatus(404);
+            return;
+        }
+
+        resp.set({
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': "GET OPTIONS",
+            'Access-Control-Request-Method': "*",
+            'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+        });
+
+        var dayIdx = parseInt(req.query.day);
+        var hourIdx = parseInt(req.query.hour);
+        var firstTime = user.info[dvc].firstTime;
+        var resultData;
+
+        var startTime = firstTime + dayIdx * MSECS_IN_DAY + hourIdx * MSECS_IN_HOUR;
+
+
+        if (dayIdx >= 0 && hourIdx >= 0 && dayIdx <= dvcDays.length - 1 && hourIdx <= dvcDays[dayIdx].length - 1) {
             var info = {
-                dayIdx: parseInt(req.query.day),
-                hourIdx: parseInt(req.query.hour),
-                categoryIdx: category.idx,
-                round: category.round,
-                sampleRate: category.sampleRate,
-                dateFieldIdx: 4
+                category: req.query.category,
+                round: catInfo.round,
+                startTime: startTime,
+                scale: catInfo.scale,
+                sampleInterval: catInfo.hourSampleInterval
             };
-            var resultData = getHourData(dataSource, info);
 
-            resp.set({
-                'Access-Control-Allow-Origin': '*',
-                'Access-Control-Allow-Methods': "GET OPTIONS",
-                'Access-Control-Request-Method': "*",
-                'Access-Control-Allow-Headers': 'Origin, X-Requested-With, Content-Type, Accept, Authorization'
+
+            MongoClient.connect(_url, function(err, db) {
+
+                assert.equal(null, err);
+
+                //set the range to be an hour
+                var findOpt = {};
+                findOpt[F_TIME_STAMP] = {
+                    $gte: startTime,
+                    $lt: startTime + MSECS_IN_HOUR
+                };
+
+                var sortOpt = {};
+                sortOpt[F_TIME_STAMP] = 1;
+
+
+                console.log("Querying the database for\n" + "user: " + user.uuid + "\ndevice: " + dvc);
+                console.log(findOpt);
+
+
+                db.collection(user.uuid + "/" + dvc).find(findOpt).sort(sortOpt).toArray(function(err, items) {
+
+                    assert.equal(null, err);
+                    resultData = getHourData(items, info);
+
+                    //When the parameter is an Array or Object, Express responds with the JSON representation:
+                    // http://expressjs.com/4x/api.html#res.send
+
+                    db.close();
+
+                    resp.send({
+                        timeRange: [startTime, startTime + MSECS_IN_HOUR],
+                        data: resultData,
+                        completionRate: resultData.length / (MSECS_IN_HOUR / catInfo.hourSampleInterval)
+                    });
+
+
+                });
             });
 
-            //When the parameter is an Array or Object, Express responds with the JSON representation:
-            // http://expressjs.com/4x/api.html#res.send
-            resp.send(resultData);
+
+        } else {
+            resp.sendStatus(404);
         }
 
     });
 
-    
+
 
     app.listen(app.get('port'), function() {
         console.log("Node app is running at localhost:" + app.get('port'));
@@ -122,76 +430,62 @@ function initServer() {
 
 }
 
-//info: {dayIdx: <integer>, hourIdx: <integer>, sampleRate: <float>, round: <boolean>,  categoryIdx: <integer>}
+//info: {round: <boolean>,  category: <string>}
 function getHourData(data, info) {
 
-    var startIdx = Math.round((info.dayIdx * 24 + info.hourIdx) * 60 * 60 * info.sampleRate);
+    console.log("Got " + data.length + " results");
 
-    //Entries per hour
-    var len = Math.round(60 * 60 * info.sampleRate);
+    if (data.length < 10) console.log(data);
 
-    return calcAvg(data, Math.round(60 * info.sampleRate), {
-        idx: info.categoryIdx,
-        round: info.round,
-    }, {
-        startIdx: startIdx,
-        len: len,
-        dateFieldIdx: info.dateFieldIdx
-    });
-
-}
-
-
-//Assume lossless sorted data
-//Output averaging values across n 
-// samples
-
-//n: how many entries to average
-//field: {idx: <integer>, round: <boolean>}
-//config: {startIdx: <integer>, len: <integer>, dateFieldIdx: <integer>, }
-function calcAvg(data, n, field, config) {
-
-    //Field names
-    var F_WHICH_CHANGED = "which_changed",
-        F_CHANGES = "changes",
-        F_OLD = "old",
-        F_NEW = "new";
-
-
-    //number of data entries per result
-    var nEntry = Math.floor(config.len / n);
 
     var results = [];
+    var i = 0;
 
-    var date;
+    var sum, count, curTs;
+    for (var ts = info.startTime;
+        (i < data.length) && (ts < info.startTime + MSECS_IN_HOUR); ts += info.sampleInterval) {
 
-    for (var i = 0; i < nEntry; i++) {
 
-        date = data[i * n + config.startIdx][F_WHICH_CHANGED][F_CHANGES][config.dateFieldIdx][F_NEW];
+        sum = 0;
+        count = 0;
 
-        var sum = 0;
-        var avg;
+        curTs = data[i];
 
-        //f.idx is the index in the changes array 
-        //based on the mAudit specification
-        for (var j = i * n + config.startIdx; j < (i + 1) * n + config.startIdx; j++) {
-            //average values across n entries
-            sum += data[j][F_WHICH_CHANGED][F_CHANGES][field.idx][F_NEW];
+        while (curTs && curTs[F_TIME_STAMP] < ts + info.sampleInterval) {
+            if (curTs[F_CATEGORIES].hasOwnProperty(info.category)) {
+                sum += (+curTs[F_CATEGORIES][info.category]);
+                count++;
+            }
+            i++;
+            curTs = data[i];
         }
 
-        avg = sum / n;
-
-        if (field.round) {
-            avg = Math.floor(avg);
+        if (count > 0) {
+            results.push({
+                val: (info.round ? Math.round(sum * info.scale / count) : sum * info.scale / count),
+                date: new Date(ts).toISOString()
+            });
         }
-
-        results.push({
-            val: avg,
-            date: date
-        });
 
     }
+
 
     return results;
 
 }
+
+// Assert
+// http://stackoverflow.com/questions/15313418/javascript-assert
+function _assert(condition, message) {
+    if (!condition) {
+        message = message || "Assertion failed";
+        if (typeof Error !== "undefined") {
+            throw new Error(message);
+        }
+        throw message; // Fallback
+    }
+}
+
+var _isValid = function(f) {
+    return f !== undefined && f !== null;
+};

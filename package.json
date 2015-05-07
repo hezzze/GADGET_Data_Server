@@ -1,22 +1,21 @@
 {
-  "name": "node-js-getting-started",
-  "version": "0.1.2",
-  "description": "A sample Node.js app using Express 4",
+  "name": "GADGET_Data_Server",
+  "version": "0.0.1",
+  "description": "Node.js app for serving GADGET data",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
   "dependencies": {
     "express": "~4.9.x",
-    "aws-sdk": ">= 2.0.9",
-    "node-uuid": ">= 1.4.1"
+    "mongodb": "^2.0.28"
   },
   "engines": {
     "node": "0.10.x"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/heroku/node-js-getting-started"
+    "url": "https://github.com/hezzze/GADGET_Data_Server"
   },
   "keywords": [
     "node",
