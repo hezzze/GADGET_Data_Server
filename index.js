@@ -1,5 +1,6 @@
 'use strict';
 
+//Constants
 var MSECS_IN_DAY = 60 * 60 * 24 * 1000;
 var MSECS_IN_HOUR = 60 * 60 * 1000;
 var MSECS_IN_MIN = 60 * 1000;
@@ -9,16 +10,12 @@ var F_ECG = "RawHeartValue";
 var F_TIME_STAMP = "timeStamp";
 var F_CATEGORIES = "categories";
 
-var express = require('express');
-var fs = require('fs');
-var app = express();
-
-
-//MongoDB
-var MongoClient = require('mongodb').MongoClient;
-var assert = require('assert');
+// GLobals
+var _express = require('express');
+var _app = _express();
+var _MongoClient = require('mongodb').MongoClient;
+var _assert = require('assert');
 var _url = 'mongodb://localhost:27017/test';
-
 var _users = [];
 var _nLoaded = 0;
 var _nUsers;
@@ -47,8 +44,8 @@ var _catInfos = {
 };
 
 
-MongoClient.connect(_url, function(err, db) {
-    assert.equal(null, err);
+_MongoClient.connect(_url, function(err, db) {
+    _assert.equal(null, err);
 
     var users = {};
 
@@ -78,10 +75,6 @@ MongoClient.connect(_url, function(err, db) {
         console.log(users);
 
         _nUsers = users.length;
-
-        // var u1 = "com:mdsol:users:52344b6e-e6d5-4ec2-b83d-bbc64725d189";
-        // _users.push(new User(u1, users[u1], db));
-
 
         for (var u in users) {
             _users.push(new User(u, users[u], db));
@@ -115,12 +108,8 @@ function User(uuid, deviceIds, db) {
 
             coll.count(query, function(err, actual) {
 
-                
-                var rate = actual / nTotal;
 
-                //debug lines
-                //console.log(uuid + "/" + deviceId + "->" + category);
-                //console.log("Total records should be " + nTotal + ". Got " + actual + " (" + Math.round(rate * 100) + "%). origSampleRate: " +_catInfos[category].origSampleRate);
+                var rate = actual / nTotal;
 
                 rateSum += rate;
                 nCategoryDone++;
@@ -145,11 +134,11 @@ function User(uuid, deviceIds, db) {
         var firstTime, lastTime;
 
         coll.find().sort(option).limit(1).next(function(err, firstDoc) {
-            assert.equal(null, err);
+            _assert.equal(null, err);
 
             option[F_TIME_STAMP] = -1;
             coll.find().sort(option).limit(1).next(function(err, lastDoc) {
-                assert.equal(null, err);
+                _assert.equal(null, err);
 
                 firstTime = firstDoc[F_TIME_STAMP];
                 lastTime = lastDoc[F_TIME_STAMP];
@@ -173,7 +162,9 @@ function User(uuid, deviceIds, db) {
                     if (idx === deviceIds.length - 1) {
                         userObj.info = info;
 
-                        onLoadComplete(uuid, db);
+                        //call this when all device is done
+                        // thus the user is done loading
+                        onUserLoadComplete(uuid, db);
                     }
 
                 });
@@ -227,7 +218,7 @@ function User(uuid, deviceIds, db) {
 }
 
 
-function onLoadComplete(uuid, db) {
+function onUserLoadComplete(uuid, db) {
     console.log("Loading " + uuid + " completed...\n");
     _nLoaded++;
     if (_nLoaded === _users.length) {
@@ -240,15 +231,15 @@ function onLoadComplete(uuid, db) {
 
 
 function initServer() {
-    app.set('port', (process.env.PORT || 5000));
-    app.use(express.static(__dirname + '/public'));
+    _app.set('port', (process.env.PORT || 5000));
+    _app.use(_express.static(__dirname + '/public'));
 
 
-    app.get('/', function(request, response) {
+    _app.get('/', function(request, response) {
         response.send("Hey, what's up!");
     });
 
-    app.options('/info', function(req, resp) {
+    _app.options('/info', function(req, resp) {
         resp.set({
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': "GET OPTIONS",
@@ -261,7 +252,7 @@ function initServer() {
         resp.send("OK");
     });
 
-    app.get('/info', function(req, resp) {
+    _app.get('/info', function(req, resp) {
 
         resp.set({
             'Access-Control-Allow-Origin': '*',
@@ -274,7 +265,7 @@ function initServer() {
     });
 
 
-    app.get('/user/:userIdx/info', function(req, resp) {
+    _app.get('/user/:userIdx/info', function(req, resp) {
 
         resp.set({
             'Access-Control-Allow-Origin': '*',
@@ -303,7 +294,7 @@ function initServer() {
     });
 
 
-    app.options('/data', function(req, resp) {
+    _app.options('/data', function(req, resp) {
         resp.set({
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': "GET OPTIONS",
@@ -316,7 +307,7 @@ function initServer() {
         resp.send("OK");
     });
 
-    app.get('/user/:userIdx/data', function(req, resp) {
+    _app.get('/user/:userIdx/data', function(req, resp) {
 
 
         var userIdx;
@@ -374,9 +365,9 @@ function initServer() {
             };
 
 
-            MongoClient.connect(_url, function(err, db) {
+            _MongoClient.connect(_url, function(err, db) {
 
-                assert.equal(null, err);
+                _assert.equal(null, err);
 
                 //set the range to be an hour
                 var findOpt = {};
@@ -395,7 +386,7 @@ function initServer() {
 
                 db.collection(user.uuid + "/" + dvc).find(findOpt).sort(sortOpt).toArray(function(err, items) {
 
-                    assert.equal(null, err);
+                    _assert.equal(null, err);
                     resultData = getHourData(items, info);
 
                     //When the parameter is an Array or Object, Express responds with the JSON representation:
@@ -422,15 +413,22 @@ function initServer() {
 
 
 
-    app.listen(app.get('port'), function() {
-        console.log("Node app is running at localhost:" + app.get('port'));
+    _app.listen(_app.get('port'), function() {
+        console.log("Node app is running at localhost:" + _app.get('port'));
     });
 
 
 
 }
 
-//info: {round: <boolean>,  category: <string>}
+//info: 
+// {   
+//     round: boolean  
+//     category: string
+//     startTime: integer
+//     scale: float
+//     sampleInterval: integer
+// }
 function getHourData(data, info) {
 
     console.log("Got " + data.length + " results");
@@ -472,18 +470,6 @@ function getHourData(data, info) {
 
     return results;
 
-}
-
-// Assert
-// http://stackoverflow.com/questions/15313418/javascript-assert
-function _assert(condition, message) {
-    if (!condition) {
-        message = message || "Assertion failed";
-        if (typeof Error !== "undefined") {
-            throw new Error(message);
-        }
-        throw message; // Fallback
-    }
 }
 
 var _isValid = function(f) {
